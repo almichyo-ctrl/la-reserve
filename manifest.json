@@ -1,0 +1,23 @@
+{
+  "name": "La Réserve — Gestion de Cuisine",
+  "short_name": "La Réserve",
+  "description": "Suivi d'inventaire, recettes et planning de cuisine",
+  "start_url": "/la-reserve/",
+  "scope": "/la-reserve/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#5C0E0E",
+  "theme_color": "#5C0E0E",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/almichyo-ctrl/la-reserve/main/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/almichyo-ctrl/la-reserve/main/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
