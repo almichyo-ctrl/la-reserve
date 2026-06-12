@@ -167,6 +167,16 @@ th.sortable:hover{color:var(--or);}
 th.sort-asc::after{content:' ↑';color:var(--or);}
 th.sort-desc::after{content:' ↓';color:var(--or);}
 
+/* STOCK FLASH */
+@keyframes flashGreen{0%{background:rgba(45,122,58,.3)}100%{background:transparent}}
+@keyframes flashRed{0%{background:rgba(139,26,26,.2)}100%{background:transparent}}
+tr.flash-plus td{animation:flashGreen .6s ease;}
+tr.flash-minus td{animation:flashRed .6s ease;}
+
+/* HORS-LIGNE BANNER */
+.offline-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:800;background:var(--gueules-dark);color:var(--or-light);font-family:'Cinzel',serif;font-size:9px;letter-spacing:.08em;text-align:center;padding:6px 12px;border-bottom:2px solid var(--or-dark);}
+.offline-banner.show{display:block;}
+
 /* MODAL CONFIRM */
 .modal-confirm-overlay{display:none;position:fixed;inset:0;background:rgba(26,15,0,.55);z-index:600;align-items:center;justify-content:center;padding:20px;}
 .modal-confirm-overlay.open{display:flex;}
@@ -195,6 +205,7 @@ body.dark .modal-confirm-head{color:var(--or-light);}
 </head>
 <body>
 
+<div class="offline-banner" id="offline-banner">⚠ Hors ligne — modifications en attente de synchronisation</div>
 <div class="header">
   <div class="header-inner">
     <div class="blason">🍽️</div>
@@ -205,7 +216,9 @@ body.dark .modal-confirm-head{color:var(--or-light);}
     <div class="header-right">
       <span id="sync-status" style="font-family:'Cinzel',serif;font-size:9px;color:rgba(240,208,128,.7);letter-spacing:.05em;">🔄 Chargement...</span>
       <span id="user-badge" class="user-badge" onclick="promptUser()" title="Changer d'utilisateur">👤 <span id="user-name">…</span></span>
+      <button class="btn-hdr" onclick="demanderNotifications()" title="Notifications" id="btn-notif">🔔</button>
       <button class="btn-hdr" onclick="toggleDark()" title="Mode sombre">🌙</button>
+      <button class="btn-hdr" onclick="openModalGeminiKey()" title="Clé Gemini (gratuite)" id="btn-apikey" style="border-color:rgba(240,208,128,.5);">🔑 IA</button>
       <button class="btn-hdr" onclick="exportData()" title="Exporter">💾</button>
       <button class="btn-hdr" onclick="document.getElementById('import-file').click()" title="Importer">📂</button>
       <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
@@ -244,10 +257,11 @@ body.dark .modal-confirm-head{color:var(--or-light);}
     <div class="stitle">Planning de la semaine</div>
     <div id="dash-planning"></div>
   </div>
+  <div class="card">
+    <div class="stitle">Historique des modifications</div>
+    <div id="dash-historique"></div>
+  </div>
 </div>
-
-<!-- ═══════════════════════════════════════════════════
-     INVENTAIRE
 ════════════════════════════════════════════════════ -->
 <div class="section" id="s-inventaire">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
@@ -293,10 +307,14 @@ body.dark .modal-confirm-head{color:var(--or-light);}
 <div class="section" id="s-recettes">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
     <span class="stitle" style="margin-bottom:0;border:none;padding:0;">Livre de recettes</span>
-    <button class="btn bp" onclick="openModal('modal-recette')">+ Nouvelle recette</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn bs" onclick="openModal('modal-import-recette')">🌐 Importer depuis le web</button>
+      <button class="btn bp" onclick="openModal('modal-recette')">+ Nouvelle recette</button>
+    </div>
   </div>
   <div class="search-bar">
     <input type="text" id="rec-search" placeholder="Rechercher une recette..." oninput="renderRecettes()" style="max-width:280px;">
+    <input type="text" id="rec-ing-search" placeholder="Filtrer par ingrédient..." oninput="renderRecettes()" style="max-width:240px;">
   </div>
   <div id="recettes-list"></div>
 </div>
@@ -321,7 +339,13 @@ body.dark .modal-confirm-head{color:var(--or-light);}
     </div>
   </div>
   <div class="card" id="calc-result" style="display:none;">
-    <div class="stitle" id="calc-titre">Ingrédients</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div class="stitle" id="calc-titre" style="margin-bottom:0;border:none;padding:0;">Ingrédients</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn bs" onclick="ajouterCalcAuxCourses()" style="font-size:8px;">🛒 Ajouter aux courses</button>
+        <button class="btn bp" onclick="jourJRecette()" style="font-size:8px;">🍳 Jour J — déduire du stock</button>
+      </div>
+    </div>
     <div class="tw">
       <table>
         <thead>
@@ -493,15 +517,100 @@ body.dark .modal-confirm-head{color:var(--or-light);}
         <div><label>Nom de la recette</label><input type="text" id="r-nom" placeholder="Ex: Pâte carbonara"></div>
         <div><label>Personnes de base</label><input type="number" id="r-personnes" value="4" min="1"></div>
       </div>
+      <div class="fr3">
+        <div><label>Prép. (min)</label><input type="number" id="r-prep" placeholder="Ex: 15" min="0"></div>
+        <div><label>Cuisson (min)</label><input type="number" id="r-cuisson" placeholder="Ex: 30" min="0"></div>
+        <div><label>Difficulté</label>
+          <select id="r-difficulte">
+            <option value="">—</option>
+            <option value="Facile">🟢 Facile</option>
+            <option value="Moyen">🟡 Moyen</option>
+            <option value="Difficile">🔴 Difficile</option>
+          </select>
+        </div>
+      </div>
       <div style="margin-bottom:12px;">
         <label>Ingrédients</label>
         <div id="ingredients-list"></div>
         <button class="btn bs" onclick="addIngredientRow()" style="margin-top:6px;">+ Ajouter un ingrédient</button>
       </div>
+      <div style="margin-bottom:12px;">
+        <label>Étapes de préparation</label>
+        <div id="etapes-list"></div>
+        <button class="btn bs" onclick="addEtapeRow()" style="margin-top:6px;">+ Ajouter une étape</button>
+      </div>
+      <div>
+        <label>Astuces / Notes du cuisinier</label>
+        <textarea id="r-notes" rows="2" placeholder="Ex: Peut se préparer à l'avance, se congèle bien..." style="resize:vertical;"></textarea>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn bs" onclick="closeModal('modal-recette')">Annuler</button>
       <button class="btn bp" onclick="saveRecette()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Clé Gemini (gratuite) -->
+<div class="modal-bg" id="modal-gemini-key" onclick="if(event.target===this)closeModal('modal-gemini-key')">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head">
+      <h3>🔑 Clé API Gemini — Gratuite</h3>
+      <button class="btn-close" onclick="closeModal('modal-gemini-key')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--vert-light);border:1px solid var(--vert);border-radius:4px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:var(--vert);">
+        ✓ Gemini Flash est <strong>100% gratuit</strong> — 15 requêtes/min, aucune carte bancaire requise.
+      </div>
+      <p style="font-size:13px;margin-bottom:12px;">Pour obtenir votre clé gratuite :</p>
+      <ol style="font-size:13px;line-height:2;padding-left:18px;margin-bottom:14px;">
+        <li>Allez sur <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--or-dark);">aistudio.google.com/app/apikey</a></li>
+        <li>Connectez-vous avec votre compte Google</li>
+        <li>Cliquez <strong>«&nbsp;Create API Key&nbsp;»</strong></li>
+        <li>Copiez la clé et collez-la ci-dessous</li>
+      </ol>
+      <label>Clé API Gemini</label>
+      <input type="password" id="gemini-key-input" placeholder="AIzaSy..." style="font-family:monospace;font-size:12px;">
+    </div>
+    <div class="modal-foot">
+      <button class="btn bs" onclick="effacerGeminiKey()">Effacer</button>
+      <button class="btn bp" onclick="sauvegarderGeminiKey()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Import Recette depuis URL -->
+<div class="modal-bg" id="modal-import-recette" onclick="if(event.target===this)closeModal('modal-import-recette')">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-head">
+      <h3>🌐 Importer une recette depuis le web</h3>
+      <button class="btn-close" onclick="closeModal('modal-import-recette')">✕</button>
+    </div>
+    <div class="modal-body">
+      <label>URL de la recette</label>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <input type="url" id="import-url" placeholder="https://www.marmiton.org/recettes/..." style="margin-bottom:0;flex:1;">
+        <button class="btn bp" onclick="importerRecetteUrl()" id="btn-import-url" style="white-space:nowrap;">Analyser</button>
+      </div>
+      <div id="import-status" style="display:none;text-align:center;padding:10px;font-family:'Cinzel',serif;font-size:10px;color:var(--or-dark);"></div>
+
+      <div id="import-result" style="display:none;">
+        <div style="font-family:'Cinzel',serif;font-size:10px;letter-spacing:.08em;color:var(--or-dark);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">✓ Recette détectée — vérifiez et corrigez si besoin</div>
+        <div class="fr">
+          <div><label>Nom de la recette</label><input type="text" id="import-nom" placeholder="Nom de la recette"></div>
+          <div><label>Personnes</label><input type="number" id="import-personnes" value="4" min="1"></div>
+        </div>
+        <div>
+          <label>Ingrédients détectés</label>
+          <div id="import-ingredients-list"></div>
+          <button class="btn bs" onclick="addImportIngredientRow()" style="margin-top:6px;">+ Ajouter un ingrédient</button>
+        </div>
+        <div style="margin-top:10px;padding:8px 10px;background:var(--surface-alt);border-radius:3px;font-size:12px;color:var(--encre-light);font-style:italic;" id="import-source-note"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn bs" onclick="closeModal('modal-import-recette')">Annuler</button>
+      <button class="btn bp" id="import-save-btn" onclick="sauvegarderRecetteImportee()" style="display:none;">Enregistrer la recette</button>
     </div>
   </div>
 </div>
@@ -521,14 +630,15 @@ body.dark .modal-confirm-head{color:var(--or-light);}
         ondragleave="this.style.borderColor='var(--border-strong)'"
         ondrop="handleScanDrop(event)">
         <div style="font-size:36px;margin-bottom:8px;">🧾</div>
-        <div style="font-family:'Cinzel',serif;font-size:10px;letter-spacing:.09em;color:var(--or-dark);">Cliquez ou glissez une photo du ticket</div>
-        <div style="font-size:11px;color:var(--encre-light);margin-top:4px;">JPG, PNG, HEIC acceptés</div>
+        <div style="font-family:'Cinzel',serif;font-size:10px;letter-spacing:.09em;color:var(--or-dark);">Cliquez ou glissez votre ticket</div>
+        <div style="font-size:11px;color:var(--encre-light);margin-top:4px;">PDF, JPG, PNG acceptés</div>
       </div>
-      <input type="file" id="scan-file-input" accept="image/*" style="display:none" onchange="handleScanFile(event)">
+      <input type="file" id="scan-file-input" accept="image/*,application/pdf" style="display:none" onchange="handleScanFile(event)">
 
-      <!-- Aperçu image -->
+      <!-- Aperçu -->
       <div id="scan-preview" style="display:none;margin-bottom:14px;text-align:center;">
         <img id="scan-img" style="max-width:100%;max-height:220px;border-radius:4px;border:1px solid var(--border);">
+        <div id="scan-pdf-label" style="display:none;padding:10px;font-family:'Cinzel',serif;font-size:10px;color:var(--or-dark);">📄 PDF chargé</div>
       </div>
 
       <!-- Résultat analyse IA -->
@@ -599,6 +709,28 @@ body.dark .modal-confirm-head{color:var(--or-light);}
     <div class="modal-confirm-foot">
       <button class="btn bs" onclick="_confirmReject&&_confirmReject()">Annuler</button>
       <button class="btn bd" id="confirm-ok-btn" onclick="_confirmResolve&&_confirmResolve()">Supprimer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<!-- Modal Bienvenue -->
+<div class="modal-bg" id="modal-bienvenue" style="z-index:700;">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-head">
+      <h3>🍽️ Bienvenue sur La Réserve</h3>
+    </div>
+    <div class="modal-body" style="text-align:center;padding:28px 24px;">
+      <div style="font-size:48px;margin-bottom:16px;">👤</div>
+      <p style="font-size:14px;margin-bottom:18px;color:var(--encre-light);">Votre prénom sera affiché dans l'historique des modifications.</p>
+      <label>Votre prénom</label>
+      <input type="text" id="bienvenue-prenom" placeholder="Ex: Marie" style="text-align:center;font-size:16px;"
+             onkeydown="if(event.key==='Enter')validerBienvenue()">
+    </div>
+    <div class="modal-foot" style="justify-content:center;">
+      <button class="btn bp" onclick="validerBienvenue()" style="padding:9px 28px;font-size:10px;">Commencer ✓</button>
     </div>
   </div>
 </div>
@@ -678,6 +810,7 @@ let data = {
   recettes: [],
   planning: {},
   achats: [],
+  coursesManuelles: [],
   budgetObjectif: 0,
   categories: ['Épicerie','Frais','Surgelés','Boissons','Hygiène','Autre'],
   historique: []
@@ -689,6 +822,16 @@ let _isSaving = false;        // évite la boucle sauvegarde → SSE → renderA
 let _reconnectTimer = null;
 let _reconnectDelay = 3000;   // délai expo : 3s → 6s → 12s → max 30s
 let _loadedAt = 0;            // timestamp du dernier loadData — ignore SSE dans les 2s suivantes
+
+function setStatus(msg){
+  const el = document.getElementById('sync-status');
+  if(el) el.textContent = msg;
+  const banner = document.getElementById('offline-banner');
+  if(banner){
+    const offline = msg.includes('🔴') || msg.includes('Hors ligne') || msg.includes('perdue');
+    banner.classList.toggle('show', offline);
+  }
+}
 
 // ── Chargement initial (REST, plus fiable pour le premier load) ──────────────
 async function loadData(){
@@ -703,6 +846,7 @@ async function loadData(){
         recettes: remote.recettes || [],
         planning: remote.planning || {},
         achats: remote.achats || [],
+        coursesManuelles: remote.coursesManuelles || [],
         budgetObjectif: remote.budgetObjectif || 0,
         categories: remote.categories || ['Épicerie','Frais','Surgelés','Boissons','Hygiène','Autre'],
         historique: remote.historique || []
@@ -839,11 +983,6 @@ function scheduleReconnect(){
   }, _reconnectDelay);
 }
 
-function setStatus(msg){
-  const el = document.getElementById('sync-status');
-  if(el) el.textContent = msg;
-}
-
 // ── Point d'entrée ───────────────────────────────────────────────────────────
 async function startSync(){
   await loadData();   // charge d'abord les données via REST
@@ -923,21 +1062,28 @@ function closeConfirm(){
 }
 
 // ── Identification utilisateur ───────────────────────────────────────────────
-function promptUser(){
-  const name = window.prompt("Votre pr\u00e9nom (affich\u00e9 dans l'historique) :", _currentUser);
-  if(name !== null){
-    _currentUser = name.trim() || 'Anonyme';
-    localStorage.setItem('lareserve-user', _currentUser);
-    document.getElementById('user-name').textContent = _currentUser || '?';
-  }
+function validerBienvenue(){
+  const val = document.getElementById('bienvenue-prenom').value.trim();
+  _currentUser = val || 'Anonyme';
+  localStorage.setItem('lareserve-user', _currentUser);
+  document.getElementById('user-name').textContent = _currentUser;
+  document.getElementById('modal-bienvenue').classList.remove('open');
 }
+
+function promptUser(){
+  // Réouvre la modale de bienvenue pour changer de prénom
+  document.getElementById('bienvenue-prenom').value = _currentUser==='Anonyme'?'':_currentUser;
+  document.getElementById('modal-bienvenue').classList.add('open');
+  setTimeout(()=>document.getElementById('bienvenue-prenom').focus(),100);
+}
+
 function initUser(){
   if(!_currentUser){
-    const name = window.prompt("Bienvenue sur La R\u00e9serve !\nVotre pr\u00e9nom (pour l'historique) :") || 'Anonyme';
-    _currentUser = name.trim();
-    localStorage.setItem('lareserve-user', _currentUser);
+    document.getElementById('modal-bienvenue').classList.add('open');
+    setTimeout(()=>document.getElementById('bienvenue-prenom').focus(),200);
+  } else {
+    document.getElementById('user-name').textContent = _currentUser;
   }
-  document.getElementById('user-name').textContent = _currentUser;
 }
 
 // ── Datalist autocomplétion produits ────────────────────────────────────────
@@ -996,8 +1142,15 @@ function produitStatut(p){
 }
 
 function renderInventaire(){
+  // Catégories dynamiques dans le filtre
+  const catSel = document.getElementById('inv-cat');
+  const prevCat = catSel.value;
+  const allCats = [...new Set(data.produits.map(p=>p.categorie).filter(Boolean))].sort();
+  catSel.innerHTML = '<option value="">Toutes catégories</option>' +
+    allCats.map(c=>`<option value="${c}" ${c===prevCat?'selected':''}>${c}</option>`).join('');
+
   const search = (document.getElementById('inv-search').value||'').toLowerCase();
-  const cat = document.getElementById('inv-cat').value;
+  const cat = catSel.value;
   const filtre = document.getElementById('inv-filtre').value;
   const today = new Date(); today.setHours(0,0,0,0);
 
@@ -1039,24 +1192,80 @@ function renderInventaire(){
       else if(diff<=3) dlcHtml = `<span style="color:var(--or-dark);">${esc(p.dlc)} (${diff}j)</span>`;
     }
 
-    return `<tr class="${rowCls}">
+    return `<tr class="${rowCls}" data-pid="${esc(p.id)}">
       <td><span class="badge badge-cat">${esc(p.categorie)||'—'}</span></td>
       <td><strong>${esc(p.nom)}</strong></td>
       <td>${esc(p.unite)||'—'}</td>
       <td>${p.contenance||'—'}</td>
-      <td>${badge} ${p.stock||0}</td>
+      <td id="stock-cell-${esc(p.id)}" title="Cliquez pour éditer"
+          style="cursor:pointer;" ondblclick="editStockInline('${esc(p.id)}')">
+        ${badge} <span style="border-bottom:1px dashed var(--border-strong);">${p.stock||0}</span>
+      </td>
       <td>${p.seuil||'—'}</td>
       <td>${p.critique||'—'}</td>
       <td>${p.prix ? p.prix+'€' : '—'}</td>
       <td>${dlcHtml}</td>
       <td style="font-size:11px;color:var(--encre-light);">${esc(p.maj)||'—'}</td>
       <td style="white-space:nowrap;">
+        <button class="btn bs" onclick="ajusterStock('${esc(p.id)}',-1)" style="padding:2px 7px;font-size:13px;">−</button>
+        <button class="btn bs" onclick="ajusterStock('${esc(p.id)}',1)" style="padding:2px 7px;font-size:13px;">+</button>
         <button class="btn bv" onclick="editProduit('${esc(p.id)}')">✏</button>
         <button class="btn bd" onclick="deleteProduit('${esc(p.id)}')">✕</button>
       </td>
     </tr>`;
   }).join('');
 }
+
+// ── Ajustement rapide du stock ───────────────────────────────────────────────
+function ajusterStock(id, delta){
+  const idx = data.produits.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  const ancien = data.produits[idx].stock||0;
+  const nouveau = Math.max(0, ancien + delta);
+  data.produits[idx] = {...data.produits[idx], stock: nouveau, maj: new Date().toLocaleDateString('fr-FR')};
+  if(!data.historique) data.historique=[];
+  data.historique.push({ts:Date.now(),user:_currentUser||'?',action:'ajustement',produit:data.produits[idx].nom,detail:`stock ${ancien}→${nouveau}`});
+  saveData(); renderInventaire(); renderDashboard();
+  toast(`${delta>0?'↑':'↓'} ${data.produits[idx].nom} : ${nouveau}`);
+  // Flash visuel
+  setTimeout(()=>{
+    const row = document.querySelector(`tr[data-pid="${id}"]`);
+    if(row){
+      const cls = delta>0 ? 'flash-plus' : 'flash-minus';
+      row.classList.add(cls);
+      setTimeout(()=>row.classList.remove(cls), 700);
+    }
+  }, 50);
+}
+
+// ── Édition inline du stock ────────────────────────────────────────────────
+function editStockInline(id){
+  const p = data.produits.find(x=>x.id===id);
+  if(!p) return;
+  const cell = document.getElementById('stock-cell-'+id);
+  if(!cell) return;
+  cell.innerHTML = `<input type="number" id="stock-inline-${id}" value="${p.stock||0}" min="0" step="1"
+    style="width:60px;padding:3px 5px;font-size:12px;text-align:center;margin:0;"
+    onblur="saveStockInline('${id}')"
+    onkeydown="if(event.key==='Enter')saveStockInline('${id}');if(event.key==='Escape')renderInventaire();">`;
+  setTimeout(()=>{ const inp=document.getElementById('stock-inline-'+id); if(inp){inp.focus();inp.select();} },30);
+}
+
+function saveStockInline(id){
+  const inp = document.getElementById('stock-inline-'+id);
+  if(!inp) return;
+  const nouveau = Math.max(0, parseFloat(inp.value)||0);
+  const idx = data.produits.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  const ancien = data.produits[idx].stock||0;
+  if(nouveau===ancien){ renderInventaire(); return; }
+  data.produits[idx] = {...data.produits[idx], stock: nouveau, maj: new Date().toLocaleDateString('fr-FR')};
+  if(!data.historique) data.historique=[];
+  data.historique.push({ts:Date.now(),user:_currentUser||'?',action:'ajustement',produit:data.produits[idx].nom,detail:`stock ${ancien}→${nouveau}`});
+  saveData(); renderInventaire(); renderDashboard();
+  toast(`✏ ${data.produits[idx].nom} : ${nouveau}`);
+}
+
 
 function openModalProduit(){
   document.getElementById('p-id').value='';
@@ -1138,6 +1347,7 @@ async function deleteProduit(id){
 // RECETTES
 // ═══════════════════════════════════════════════
 let ingredientRows = [];
+let etapeRows = [];
 
 function addIngredientRow(ing=null){
   const id = uid();
@@ -1161,12 +1371,43 @@ function removeIngRow(id){
   document.getElementById('ing-row-'+id)?.remove();
 }
 
+function addEtapeRow(texte=''){
+  const id = uid();
+  etapeRows.push(id);
+  const div = document.createElement('div');
+  div.id = 'etape-row-'+id;
+  div.style.cssText = 'display:grid;grid-template-columns:24px 1fr auto;gap:6px;margin-bottom:6px;align-items:start;';
+  const num = etapeRows.length;
+  div.innerHTML = `
+    <div style="font-family:'Cinzel',serif;font-size:11px;color:var(--or-dark);padding-top:10px;text-align:center;">${num}</div>
+    <textarea id="etape-txt-${id}" rows="2" placeholder="Décrivez cette étape..." style="margin-bottom:0;resize:vertical;">${texte}</textarea>
+    <button class="btn bd" onclick="removeEtapeRow('${id}')" style="margin-top:0;">✕</button>
+  `;
+  document.getElementById('etapes-list').appendChild(div);
+}
+
+function removeEtapeRow(id){
+  etapeRows = etapeRows.filter(x=>x!==id);
+  document.getElementById('etape-row-'+id)?.remove();
+  // Renuméroter
+  etapeRows.forEach((eid, i) => {
+    const row = document.getElementById('etape-row-'+eid);
+    if(row) row.querySelector('div').textContent = i+1;
+  });
+}
+
 function openModalRecette(){
   document.getElementById('r-id').value='';
   document.getElementById('r-nom').value='';
   document.getElementById('r-personnes').value='4';
+  document.getElementById('r-prep').value='';
+  document.getElementById('r-cuisson').value='';
+  document.getElementById('r-difficulte').value='';
+  document.getElementById('r-notes').value='';
   document.getElementById('ingredients-list').innerHTML='';
+  document.getElementById('etapes-list').innerHTML='';
   ingredientRows=[];
+  etapeRows=[];
   document.getElementById('modal-recette-titre').textContent='Nouvelle recette';
   addIngredientRow();
   openModal('modal-recette');
@@ -1178,10 +1419,17 @@ function editRecette(id){
   document.getElementById('r-id').value=r.id;
   document.getElementById('r-nom').value=r.nom;
   document.getElementById('r-personnes').value=r.personnes;
+  document.getElementById('r-prep').value=r.prep||'';
+  document.getElementById('r-cuisson').value=r.cuisson||'';
+  document.getElementById('r-difficulte').value=r.difficulte||'';
+  document.getElementById('r-notes').value=r.notes||'';
   document.getElementById('ingredients-list').innerHTML='';
+  document.getElementById('etapes-list').innerHTML='';
   ingredientRows=[];
+  etapeRows=[];
   (r.ingredients||[]).forEach(ing=>addIngredientRow(ing));
   if(!r.ingredients||!r.ingredients.length) addIngredientRow();
+  (r.etapes||[]).forEach(e=>addEtapeRow(e));
   document.getElementById('modal-recette-titre').textContent='Modifier la recette';
   openModal('modal-recette');
 }
@@ -1195,10 +1443,16 @@ function saveRecette(){
     qte: parseFloat(document.getElementById('ing-qte-'+rid)?.value)||0,
     unite: document.getElementById('ing-unite-'+rid)?.value||'g'
   })).filter(i=>i.nom);
+  const etapes = etapeRows.map(eid=>(document.getElementById('etape-txt-'+eid)?.value||'').trim()).filter(Boolean);
   const obj = {
     id: id||uid(), nom,
     personnes: parseInt(document.getElementById('r-personnes').value)||4,
-    ingredients
+    prep: parseInt(document.getElementById('r-prep').value)||0,
+    cuisson: parseInt(document.getElementById('r-cuisson').value)||0,
+    difficulte: document.getElementById('r-difficulte').value||'',
+    notes: document.getElementById('r-notes').value.trim(),
+    ingredients,
+    etapes
   };
   if(id){ const i=data.recettes.findIndex(x=>x.id===id); data.recettes[i]=obj; }
   else data.recettes.push(obj);
@@ -1218,34 +1472,161 @@ async function deleteRecette(id){
 
 function renderRecettes(){
   const search = (document.getElementById('rec-search')?.value||'').toLowerCase();
+  const ingSearch = (document.getElementById('rec-ing-search')?.value||'').toLowerCase();
   const list = document.getElementById('recettes-list');
-  let recettes = data.recettes.filter(r=>!search||r.nom.toLowerCase().includes(search));
+  let recettes = data.recettes.filter(r=>{
+    if(search && !r.nom.toLowerCase().includes(search)) return false;
+    if(ingSearch && !(r.ingredients||[]).some(i=>i.nom.toLowerCase().includes(ingSearch))) return false;
+    return true;
+  });
   if(!recettes.length){
     list.innerHTML=`<div class="card"><div class="empty">Aucune recette — ajoutez-en une !</div></div>`;
     return;
   }
-  list.innerHTML = recettes.map(r=>`
+
+  const diffBadge = d => {
+    if(!d) return '';
+    const map = { 'Facile':'badge-ok', 'Moyen':'badge-orange', 'Difficile':'badge-alerte' };
+    const icons = { 'Facile':'🟢', 'Moyen':'🟡', 'Difficile':'🔴' };
+    return `<span class="badge ${map[d]||'badge-cat'}">${icons[d]||''} ${d}</span>`;
+  };
+
+  const timeInfo = r => {
+    const parts = [];
+    if(r.prep) parts.push(`⏱ Prép. ${r.prep} min`);
+    if(r.cuisson) parts.push(`🔥 Cuisson ${r.cuisson} min`);
+    if(r.prep && r.cuisson) parts.push(`⏳ Total ${r.prep + r.cuisson} min`);
+    return parts.length ? `<span style="font-size:11px;color:var(--encre-light);">${parts.join(' · ')}</span>` : '';
+  };
+
+  list.innerHTML = recettes.map(r=>{
+    const hasEtapes = r.etapes && r.etapes.length > 0;
+    const hasNotes = r.notes && r.notes.trim();
+    const uid_card = 'rec-'+r.id;
+    return `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
         <div>
           <strong style="font-family:'Cinzel',serif;font-size:13px;">${esc(r.nom)}</strong>
           <span style="font-size:11px;color:var(--encre-light);margin-left:8px;">— base ${r.personnes} pers.</span>
+          ${diffBadge(r.difficulte) ? `<span style="margin-left:6px;">${diffBadge(r.difficulte)}</span>` : ''}
         </div>
         <div style="display:flex;gap:6px;">
+          <button class="btn bs" onclick="dupliquerRecette('${esc(r.id)}')" style="font-size:8px;padding:3px 8px;">⎘ Dupliquer</button>
           <button class="btn bv" onclick="editRecette('${esc(r.id)}')">✏ Modifier</button>
           <button class="btn bd" onclick="deleteRecette('${esc(r.id)}')">✕</button>
         </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;">
-        ${(r.ingredients||[]).map(i=>`<span class="badge badge-cat">${esc(i.nom)} — ${i.qte} ${esc(i.unite)}</span>`).join('')}
+
+      ${timeInfo(r) ? `<div style="margin-bottom:8px;">${timeInfo(r)}</div>` : ''}
+
+      <div style="margin-bottom:${hasEtapes||hasNotes?'12':'0'}px;">
+        <div style="font-family:'Cinzel',serif;font-size:9px;letter-spacing:.08em;color:var(--or-dark);margin-bottom:6px;">INGRÉDIENTS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${(r.ingredients||[]).map(i=>`<span class="badge badge-cat">${esc(i.nom)} — ${i.qte} ${esc(i.unite)}</span>`).join('')}
+        </div>
       </div>
+
+      ${hasEtapes ? `
+      <div style="margin-bottom:${hasNotes?'12':'0'}px;">
+        <button onclick="toggleEtapes('${uid_card}')" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:6px;padding:0;margin-bottom:8px;font-family:'Cinzel',serif;font-size:9px;letter-spacing:.08em;color:var(--or-dark);">
+          <span id="arrow-${uid_card}" style="transition:transform .2s;">▶</span> ÉTAPES DE PRÉPARATION (${r.etapes.length})
+        </button>
+        <div id="etapes-${uid_card}" style="display:none;">
+          <ol style="padding-left:0;list-style:none;margin:0;">
+            ${r.etapes.map((e,i)=>`
+              <li style="display:flex;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;${i===r.etapes.length-1?'border-bottom:none;':''}">
+                <span style="font-family:'Cinzel',serif;font-size:10px;color:var(--or);background:var(--surface-alt);border:1px solid var(--border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">${i+1}</span>
+                <span>${esc(e)}</span>
+              </li>
+            `).join('')}
+          </ol>
+        </div>
+      </div>` : ''}
+
+      ${hasNotes ? `
+      <div style="background:var(--surface-alt);border-left:3px solid var(--or-dark);border-radius:0 3px 3px 0;padding:8px 12px;font-size:12px;font-style:italic;color:var(--encre-light);">
+        💡 ${esc(r.notes)}
+      </div>` : ''}
     </div>
-  `).join('');
+  `}).join('');
+}
+
+function toggleEtapes(uid_card){
+  const div = document.getElementById('etapes-'+uid_card);
+  const arrow = document.getElementById('arrow-'+uid_card);
+  if(!div) return;
+  const open = div.style.display !== 'none';
+  div.style.display = open ? 'none' : 'block';
+  if(arrow) arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
 }
 
 // ═══════════════════════════════════════════════
 // CALCULATEUR
 // ═══════════════════════════════════════════════
+function ajouterCalcAuxCourses(){
+  const rid = document.getElementById('calc-recette').value;
+  const nb = parseFloat(document.getElementById('calc-personnes').value)||1;
+  const r = data.recettes.find(x=>x.id===rid);
+  if(!r) return;
+  const ratio = nb / (r.personnes||4);
+  if(!data.coursesManuelles) data.coursesManuelles=[];
+  (r.ingredients||[]).forEach(ing=>{
+    const qteNec = Math.round(ing.qte * ratio * 100)/100;
+    const prod = data.produits.find(p=>p.nom.toLowerCase()===ing.nom.toLowerCase());
+    const stockVal = prod ? (prod.stock||0)*(prod.contenance||1) : 0;
+    if(stockVal < qteNec){
+      const manque = Math.round((qteNec - stockVal)*100)/100;
+      // Évite les doublons
+      if(!data.coursesManuelles.find(c=>c.nom.toLowerCase()===ing.nom.toLowerCase())){
+        data.coursesManuelles.push({id:uid(), nom:ing.nom, qte:manque, unite:ing.unite, categorie:'Recette'});
+      }
+    }
+  });
+  saveData();
+  toast('🛒 Ingrédients manquants ajoutés aux courses');
+}
+
+async function jourJRecette(){
+  const rid = document.getElementById('calc-recette').value;
+  const nb = parseFloat(document.getElementById('calc-personnes').value)||1;
+  const r = data.recettes.find(x=>x.id===rid);
+  if(!r) return;
+  try {
+    await confirmDialog('Mode Jour J', `Déduire les ingrédients de <strong>${esc(r.nom)}</strong> pour ${nb} personnes du stock ?`, 'Confirmer');
+    const ratio = nb / (r.personnes||4);
+    let nbMaj = 0;
+    (r.ingredients||[]).forEach(ing=>{
+      const qteNec = Math.round(ing.qte * ratio * 100)/100;
+      const prod = data.produits.find(p=>p.nom.toLowerCase()===ing.nom.toLowerCase());
+      if(!prod) return;
+      const idx = data.produits.findIndex(x=>x.id===prod.id);
+      const ancien = prod.stock||0;
+      const qteEnUnite = Math.ceil(qteNec / (prod.contenance||1));
+      const nouveau = Math.max(0, ancien - qteEnUnite);
+      data.produits[idx] = {...data.produits[idx], stock: nouveau, maj: new Date().toLocaleDateString('fr-FR')};
+      if(!data.historique) data.historique=[];
+      data.historique.push({ts:Date.now(),user:_currentUser||'?',action:'jour-j',produit:prod.nom,detail:`${r.nom} — stock ${ancien}→${nouveau}`});
+      nbMaj++;
+    });
+    saveData(); renderInventaire(); renderCalculateur(); renderDashboard();
+    toast(`🍳 ${nbMaj} produit(s) déduits du stock`);
+  } catch(_){}
+}
+
+
+function dupliquerRecette(id){
+  const r = data.recettes.find(x=>x.id===id);
+  if(!r) return;
+  const copie = JSON.parse(JSON.stringify(r));
+  copie.id = uid();
+  copie.nom = copie.nom + ' (copie)';
+  data.recettes.push(copie);
+  saveData(); renderRecettes(); renderCalcSelect();
+  toast('⎘ Recette dupliquée');
+}
+
+
 function renderCalcSelect(){
   const sel = document.getElementById('calc-recette');
   const cur = sel.value;
@@ -1327,25 +1708,42 @@ function renderPlanning(){
   if(!data.planning[key]) data.planning[key]={};
   const week = data.planning[key];
 
-  // Label semaine
   const fmt = d=>d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'});
   document.getElementById('planning-semaine').textContent = `${fmt(dates[0])} — ${fmt(dates[6])}`;
 
-  const recOpts = data.recettes.map(r=>`<option value="${esc(r.id)}">${esc(r.nom)}</option>`).join('');
-  const grid = document.getElementById('planning-grid');
+  const recOpts = '<option value="">— Ajouter —</option>' +
+    data.recettes.map(r=>`<option value="${esc(r.id)}">${esc(r.nom)}</option>`).join('');
 
+  const grid = document.getElementById('planning-grid');
   let html = `<div class="pg-head"></div>`;
   REPAS.forEach(r=>html+=`<div class="pg-head">${r}</div>`);
 
   JOURS.forEach((jour,ji)=>{
-    if(!week[jour]) week[jour]={entree:'',plat:'',dessert:''};
-    const keys = ['entree','plat','dessert'];
+    if(!week[jour]) week[jour]={entree:[],plat:[],dessert:[]};
+    // Migration : si l'ancienne valeur est une string, la convertir en tableau
+    ['entree','plat','dessert'].forEach(k=>{
+      if(typeof week[jour][k] === 'string'){
+        week[jour][k] = week[jour][k] ? [week[jour][k]] : [];
+      }
+      if(!Array.isArray(week[jour][k])) week[jour][k] = [];
+    });
+
     html+=`<div class="pg-day">${jour}<br><small style="font-size:8px;color:var(--encre-light);">${fmt(dates[ji])}</small></div>`;
-    keys.forEach(k=>{
-      html+=`<div class="pg-cell">
-        <select onchange="savePlanning('${key}','${jour}','${k}',this.value)" style="width:100%;">
-          <option value="">—</option>
-          ${recOpts.replace(`value="${week[jour][k]}"`,`value="${week[jour][k]}" selected`)}
+
+    ['entree','plat','dessert'].forEach(k=>{
+      const recettes = week[jour][k] || [];
+      const tags = recettes.map(rid=>{
+        const r = data.recettes.find(x=>x.id===rid);
+        return r ? `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--surface-alt);border:1px solid var(--border);border-radius:2px;padding:2px 6px;font-size:10px;margin:2px;">
+          ${esc(r.nom)}
+          <button onclick="retirerRecettePlanning('${key}','${jour}','${k}','${rid}')" style="background:none;border:none;cursor:pointer;color:var(--gueules);font-size:11px;padding:0 2px;line-height:1;">×</button>
+        </span>` : '';
+      }).join('');
+
+      html+=`<div class="pg-cell" style="flex-direction:column;align-items:flex-start;gap:4px;min-height:50px;">
+        <div style="display:flex;flex-wrap:wrap;gap:2px;">${tags}</div>
+        <select onchange="ajouterRecettePlanning('${key}','${jour}','${k}',this)" style="width:100%;font-size:10px;margin-bottom:0;">
+          ${recOpts}
         </select>
       </div>`;
     });
@@ -1353,12 +1751,35 @@ function renderPlanning(){
   grid.innerHTML=html;
 }
 
+function ajouterRecettePlanning(key, jour, repas, selectEl){
+  const val = selectEl.value;
+  if(!val) return;
+  if(!data.planning[key]) data.planning[key]={};
+  if(!data.planning[key][jour]) data.planning[key][jour]={entree:[],plat:[],dessert:[]};
+  const arr = data.planning[key][jour][repas];
+  if(!Array.isArray(arr)) data.planning[key][jour][repas] = arr ? [arr] : [];
+  if(!data.planning[key][jour][repas].includes(val)){
+    data.planning[key][jour][repas].push(val);
+  }
+  selectEl.value = ''; // remet à "— Ajouter —"
+  saveData();
+  renderPlanning();
+}
+
+function retirerRecettePlanning(key, jour, repas, rid){
+  if(!data.planning[key]?.[jour]?.[repas]) return;
+  data.planning[key][jour][repas] = data.planning[key][jour][repas].filter(x=>x!==rid);
+  saveData();
+  renderPlanning();
+}
+
 function savePlanning(key,jour,repas,val){
   if(!data.planning[key]) data.planning[key]={};
-  if(!data.planning[key][jour]) data.planning[key][jour]={entree:'',plat:'',dessert:''};
+  if(!data.planning[key][jour]) data.planning[key][jour]={entree:[],plat:[],dessert:[]};
   data.planning[key][jour][repas]=val;
   saveData();
 }
+
 
 // ═══════════════════════════════════════════════
 // LISTE DE COURSES
@@ -1388,7 +1809,11 @@ function renderCourses(){
   const recetteIds = new Set();
   JOURS.forEach(j=>{
     if(week[j]){
-      Object.values(week[j]).forEach(v=>{ if(v) recetteIds.add(v); });
+      ['entree','plat','dessert'].forEach(k=>{
+        const val = week[j][k];
+        if(Array.isArray(val)) val.forEach(v=>{ if(v) recetteIds.add(v); });
+        else if(val) recetteIds.add(val);
+      });
     }
   });
 
@@ -1658,22 +2083,88 @@ function renderDashboard(){
   const dates = getWeekDates(0);
   const fmt = d=>d.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'2-digit'});
   const dp = document.getElementById('dash-planning');
-  const joursAvecRepas = JOURS.filter(j=>week[j]&&(week[j].entree||week[j].plat||week[j].dessert));
+  const joursAvecRepas = JOURS.filter(j=>week[j]&&(['entree','plat','dessert'].some(k=>{ const v=week[j][k]; return Array.isArray(v)?v.length>0:!!v; })));
   if(!joursAvecRepas.length){
     dp.innerHTML='<div class="empty">Planning vide — <a href="#" onclick="showSection(\'planning\',null)" style="color:var(--or-dark);">Ajouter des repas</a></div>';
   } else {
+    const getNames = ids => {
+      if(!ids) return '—';
+      const arr = Array.isArray(ids) ? ids : (ids ? [ids] : []);
+      if(!arr.length) return '—';
+      return arr.map(id=>{ const r=data.recettes.find(x=>x.id===id); return r?esc(r.nom):'?'; }).join(', ');
+    };
     dp.innerHTML='<div class="tw"><table><thead><tr><th>Jour</th><th>Entrée</th><th>Plat</th><th>Dessert</th></tr></thead><tbody>'+
     JOURS.map((j,i)=>{
       const day = week[j]||{};
-      const getName = id=>{ const r=data.recettes.find(x=>x.id===id); return r?esc(r.nom):'—'; };
-      return`<tr><td><strong>${j}</strong><br><small style="color:var(--encre-light);">${fmt(dates[i])}</small></td><td>${getName(day.entree)}</td><td>${getName(day.plat)}</td><td>${getName(day.dessert)}</td></tr>`;
+      return`<tr><td><strong>${j}</strong><br><small style="color:var(--encre-light);">${fmt(dates[i])}</small></td><td>${getNames(day.entree)}</td><td>${getNames(day.plat)}</td><td>${getNames(day.dessert)}</td></tr>`;
+    }).join('')+'</tbody></table></div>';
+  }
+
+  // Historique
+  const hist = (data.historique||[]).slice().reverse().slice(0,10);
+  const dh = document.getElementById('dash-historique');
+  if(!hist.length){
+    dh.innerHTML='<div class="empty">Aucune modification enregistrée</div>';
+  } else {
+    dh.innerHTML='<div class="tw"><table><thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Produit</th><th>Détail</th></tr></thead><tbody>'+
+    hist.map(h=>{
+      const d = new Date(h.ts);
+      const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      const actionBadge = h.action==='ajout'?'<span class="badge badge-ok">+ Ajout</span>'
+        :h.action==='suppression'?'<span class="badge badge-alerte">✕ Suppr.</span>'
+        :h.action==='jour-j'?'<span class="badge badge-orange">🍳 Jour J</span>'
+        :h.action==='achat-courses'?'<span class="badge badge-cat">🛒 Achat</span>'
+        :'<span class="badge badge-cat">✏ Modif.</span>';
+      return`<tr><td style="font-size:11px;white-space:nowrap;">${dateStr}</td><td>${esc(h.user||'—')}</td><td>${actionBadge}</td><td>${esc(h.produit||'—')}</td><td style="font-size:11px;color:var(--encre-light);">${esc(h.detail||'')}</td></tr>`;
     }).join('')+'</tbody></table></div>';
   }
 }
 
 // ═══════════════════════════════════════════════
-// BUDGET & DÉPENSES
+// NOTIFICATIONS
 // ═══════════════════════════════════════════════
+function demanderNotifications(){
+  if(!('Notification' in window)){ toast('⚠ Notifications non supportées'); return; }
+  if(Notification.permission==='granted'){
+    toast('🔔 Notifications déjà activées');
+    verifierAlertes();
+    return;
+  }
+  Notification.requestPermission().then(perm=>{
+    if(perm==='granted'){
+      document.getElementById('btn-notif').textContent='🔔';
+      toast('🔔 Notifications activées !');
+      verifierAlertes();
+    } else {
+      toast('⚠ Notifications refusées');
+    }
+  });
+}
+
+function verifierAlertes(){
+  if(Notification.permission!=='granted') return;
+  const alertes = data.produits.filter(p=>p.seuil>0&&(p.stock||0)<=(p.seuil||0));
+  if(alertes.length){
+    new Notification('⚠ La Réserve — Alertes stock', {
+      body: `${alertes.length} produit(s) en alerte : ${alertes.slice(0,3).map(p=>p.nom).join(', ')}${alertes.length>3?'...':''}`,
+      icon: '/la-reserve/icon.png'
+    });
+  }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dlcUrgentes = data.produits.filter(p=>{
+    if(!p.dlc) return false;
+    const diff = Math.ceil((new Date(p.dlc)-today)/(1000*60*60*24));
+    return diff<=2;
+  });
+  if(dlcUrgentes.length){
+    new Notification('🗓 La Réserve — DLC urgentes', {
+      body: `${dlcUrgentes.length} produit(s) avec DLC proche : ${dlcUrgentes.slice(0,3).map(p=>p.nom).join(', ')}`,
+      icon: '/la-reserve/icon.png'
+    });
+  }
+}
+
+
 
 const CAT_COLORS = {
   'Épicerie':  '#C9A84C',
@@ -1982,11 +2473,21 @@ function handleScanFile(e){
 }
 
 function processScanFile(file){
-  _scanMime = file.type||'image/jpeg';
+  _scanMime = file.type || 'image/jpeg';
+  const isPDF = file.type === 'application/pdf';
   const reader = new FileReader();
   reader.onload = ev => {
     _scanBase64 = ev.target.result.split(',')[1];
-    document.getElementById('scan-img').src = ev.target.result;
+    // Aperçu
+    if(isPDF){
+      document.getElementById('scan-img').style.display = 'none';
+      document.getElementById('scan-pdf-label').style.display = 'block';
+      document.getElementById('scan-pdf-label').textContent = `📄 ${file.name}`;
+    } else {
+      document.getElementById('scan-img').style.display = '';
+      document.getElementById('scan-img').src = ev.target.result;
+      document.getElementById('scan-pdf-label').style.display = 'none';
+    }
     document.getElementById('scan-preview').style.display='block';
     document.getElementById('scan-result').style.display='none';
     document.getElementById('scan-save-btn').style.display='none';
@@ -1996,67 +2497,67 @@ function processScanFile(file){
 }
 
 async function analyserTicketIA(){
+  if(!getGeminiKey()){ openModalGeminiKey(); toast('⚠ Configurez d\'abord votre clé Gemini'); return; }
   const status = document.getElementById('scan-status');
   status.style.display='block';
-  status.textContent='🔍 Analyse du ticket en cours...';
+  status.textContent='🔍 Lecture du ticket en cours...';
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: _scanMime, data: _scanBase64 }
-            },
-            {
-              type: 'text',
-              text: `Analyse ce ticket de caisse et réponds UNIQUEMENT avec un JSON valide (sans markdown, sans backticks), dans ce format exact :
-{"magasin":"nom du magasin","date":"YYYY-MM-DD","total":montant_numerique,"categorie":"Épicerie","articles":"liste des articles séparés par des virgules"}
+  const prompt = `Tu es un expert OCR spécialisé dans les tickets de caisse français.
+Lis attentivement TOUT le texte visible sur ce document, ligne par ligne.
+Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans backticks) :
+{"magasin":"nom exact du magasin","date":"YYYY-MM-DD","total":montant_numerique_ttc,"categorie":"Épicerie","articles":"article1 (prix), article2 (prix), ..."}
+Règles : magasin=enseigne en haut, date=format YYYY-MM-DD, total=montant TTC final après "TOTAL"/"NET A PAYER", articles=tous les articles avec prix, categorie parmi Épicerie/Frais/Surgelés/Boissons/Hygiène/Autre, null si illisible, NE PAS inventer.`;
 
-Pour la catégorie, choisis parmi : Épicerie, Frais, Surgelés, Boissons, Hygiène, Autre.
-Si une information est absente, utilise null. Le total doit être un nombre (ex: 23.45).`
-            }
-          ]
-        }]
-      })
-    });
+  const body = {
+    contents: [{ parts: [
+      { inline_data: { mime_type: _scanMime, data: _scanBase64 } },
+      { text: prompt }
+    ]}],
+    generationConfig: { temperature: 0, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } }
+  };
 
-    const result = await response.json();
-    const text = result.content?.find(b=>b.type==='text')?.text||'';
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+  let result = null;
+  let lastError = '';
 
-    // Parse JSON robuste
-    let parsed = null;
+  for(const model of models){
+    status.textContent = `🔍 Analyse via ${model}...`;
     try {
-      const clean = text.replace(/```json|```/g,'').trim();
-      parsed = JSON.parse(clean);
-    } catch(_){
-      // tentative de récupérer un JSON dans le texte
-      const m = text.match(/\{[\s\S]*\}/);
-      if(m) try{ parsed = JSON.parse(m[0]); }catch(_){}
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getGeminiKey()}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      );
+      const data = await response.json();
+      if(response.ok){ result = data; break; }
+      lastError = data?.error?.message || `Erreur ${response.status}`;
+      console.warn(`${model} failed:`, lastError);
+    } catch(e){
+      lastError = e.message;
+      console.warn(`${model} exception:`, e);
     }
+  }
 
-    if(parsed){
-      document.getElementById('scan-magasin').value = parsed.magasin||'';
-      document.getElementById('scan-date').value = parsed.date||new Date().toISOString().substring(0,10);
-      document.getElementById('scan-cat').value = parsed.categorie||'Épicerie';
-      document.getElementById('scan-total').value = parsed.total||'';
-      document.getElementById('scan-articles').value = parsed.articles||'';
-      document.getElementById('scan-note').value='';
-      document.getElementById('scan-result').style.display='block';
-      document.getElementById('scan-save-btn').style.display='';
-      status.textContent='✓ Analyse terminée — vérifiez et corrigez si besoin';
-    } else {
-      status.textContent='⚠ Analyse imprécise — remplissez manuellement';
-      prefillScanManual();
-    }
-  } catch(e){
-    status.textContent='⚠ Erreur d\'analyse — remplissez manuellement';
+  if(!result){ status.textContent = `⚠ ${lastError}`; prefillScanManual(); return; }
+
+  const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  console.log('Gemini raw:', text);
+
+  let parsed = null;
+  try { parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); }
+  catch(_){ const m = text.match(/\{[\s\S]*\}/); if(m) try{ parsed=JSON.parse(m[0]); }catch(_){} }
+
+  if(parsed){
+    document.getElementById('scan-magasin').value = parsed.magasin||'';
+    document.getElementById('scan-date').value = parsed.date||new Date().toISOString().substring(0,10);
+    document.getElementById('scan-cat').value = parsed.categorie||'Épicerie';
+    document.getElementById('scan-total').value = parsed.total||'';
+    document.getElementById('scan-articles').value = parsed.articles||'';
+    document.getElementById('scan-note').value='';
+    document.getElementById('scan-result').style.display='block';
+    document.getElementById('scan-save-btn').style.display='';
+    status.textContent='✓ Analyse terminée — vérifiez et corrigez si besoin';
+  } else {
+    status.textContent='⚠ Lecture impossible — remplissez manuellement';
     prefillScanManual();
   }
 }
@@ -2088,6 +2589,203 @@ function saveTicketScan(){
 }
 
 // ═══════════════════════════════════════════════
+// IMPORT RECETTE DEPUIS URL (gratuit : Jina Reader + Gemini Flash)
+// ═══════════════════════════════════════════════
+
+const GEMINI_KEY = 'AIzaSyD-PLACEHOLDER'; // Remplacé dynamiquement via localStorage
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+function getGeminiKey(){
+  return localStorage.getItem('lareserve-gemini-key') || '';
+}
+
+async function importerRecetteUrl(){
+  const url = document.getElementById('import-url').value.trim();
+  if(!url){ toast('⚠ Veuillez saisir une URL'); return; }
+
+  if(!getGeminiKey()){ openModalGeminiKey(); toast('⚠ Configurez d\'abord votre clé Gemini gratuite'); return; }
+
+  const status = document.getElementById('import-status');
+  const result = document.getElementById('import-result');
+  const btn = document.getElementById('btn-import-url');
+
+  status.style.display = 'block';
+  status.textContent = '🔍 Récupération de la page...';
+  result.style.display = 'none';
+  document.getElementById('import-save-btn').style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  try {
+    // Étape 1 : Jina Reader extrait le texte brut de la page (pas de clé requise)
+    status.textContent = '📄 Lecture de la recette...';
+    const jinaResp = await fetch('https://r.jina.ai/' + url, {
+      headers: { 'Accept': 'text/plain', 'X-No-Cache': 'true' }
+    });
+    if(!jinaResp.ok) throw new Error('Jina Reader inaccessible');
+    let pageText = await jinaResp.text();
+    // Limiter à 6000 caractères pour rester dans les limites
+    pageText = pageText.substring(0, 6000);
+
+    // Étape 2 : Gemini Flash analyse le texte et extrait la recette
+    status.textContent = '🤖 Analyse IA en cours...';
+    const geminiResp = await fetch(`${GEMINI_ENDPOINT}?key=${getGeminiKey()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `Voici le contenu textuel d'une page web de recette de cuisine :
+
+---
+${pageText}
+---
+
+Extrait les informations de la recette et réponds UNIQUEMENT avec un JSON valide (sans markdown, sans backticks) dans ce format exact :
+{"nom":"Nom de la recette","personnes":4,"ingredients":[{"nom":"Farine","qte":200,"unite":"g"}],"source":"nom du site"}
+
+Règles :
+- Les unités doivent être parmi : g, kg, L, cl, ml, unité, boîte, sachet, pincée
+- Si une quantité n'est pas précisée, mets 1 avec l'unité "unité"
+- Convertis les mesures en cuillerée en cl ou ml
+- Inclus tous les ingrédients principaux`
+          }]
+        }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
+      })
+    });
+
+    const geminiData = await geminiResp.json();
+    if(!geminiResp.ok){
+      const errMsg = geminiData?.error?.message || 'Erreur Gemini';
+      if(geminiData?.error?.status === 'INVALID_ARGUMENT' || geminiResp.status === 400){
+        status.textContent = '⚠ Clé Gemini invalide — vérifiez votre clé';
+        openModalGeminiKey();
+      } else {
+        status.textContent = '⚠ ' + errMsg;
+      }
+      btn.disabled = false; btn.textContent = 'Analyser'; return;
+    }
+
+    const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+    } catch(_) {
+      const m = text.match(/\{[\s\S]*\}/);
+      if(m) try { parsed = JSON.parse(m[0]); } catch(_) {}
+    }
+
+    if(parsed && parsed.nom && Array.isArray(parsed.ingredients)){
+      status.textContent = `✓ Recette "${parsed.nom}" détectée — vérifiez et corrigez si besoin`;
+      document.getElementById('import-nom').value = parsed.nom || '';
+      document.getElementById('import-personnes').value = parsed.personnes || 4;
+      renderImportIngredients(parsed.ingredients || []);
+      document.getElementById('import-source-note').textContent = `Source : ${parsed.source || new URL(url).hostname}`;
+      result.style.display = 'block';
+      document.getElementById('import-save-btn').style.display = '';
+    } else {
+      status.textContent = '⚠ Impossible d\'extraire la recette — essayez une autre URL ou saisissez manuellement';
+    }
+  } catch(e) {
+    console.error(e);
+    status.textContent = '⚠ Erreur réseau — vérifiez votre connexion et l\'URL';
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Analyser';
+}
+
+function openModalGeminiKey(){
+  document.getElementById('gemini-key-input').value = getGeminiKey();
+  updateGeminiKeyBtn();
+  openModal('modal-gemini-key');
+}
+
+function sauvegarderGeminiKey(){
+  const key = document.getElementById('gemini-key-input').value.trim();
+  if(!key){ toast('⚠ Clé vide'); return; }
+  localStorage.setItem('lareserve-gemini-key', key);
+  updateGeminiKeyBtn();
+  closeModal('modal-gemini-key');
+  toast('🔑 Clé Gemini enregistrée');
+}
+
+function effacerGeminiKey(){
+  localStorage.removeItem('lareserve-gemini-key');
+  document.getElementById('gemini-key-input').value = '';
+  updateGeminiKeyBtn();
+  toast('🗑 Clé supprimée');
+}
+
+function updateGeminiKeyBtn(){
+  const btn = document.getElementById('btn-apikey');
+  if(!btn) return;
+  const hasKey = !!getGeminiKey();
+  btn.style.borderColor = hasKey ? 'var(--vert)' : 'rgba(240,208,128,.5)';
+  btn.title = hasKey ? 'Clé Gemini configurée ✓' : 'Configurer la clé Gemini (gratuite)';
+  btn.textContent = hasKey ? '🔑 IA ✓' : '🔑 IA';
+}
+
+function renderImportIngredients(ingredients){
+  const container = document.getElementById('import-ingredients-list');
+  const UNITES = ['g','kg','L','cl','ml','unité','boîte','sachet','pincée'];
+  container.innerHTML = ingredients.map((ing, i) => `
+    <div style="display:grid;grid-template-columns:1fr 80px 90px 30px;gap:6px;margin-bottom:6px;align-items:center;" id="import-ing-row-${i}">
+      <input type="text" value="${esc(ing.nom||'')}" placeholder="Ingrédient" style="margin-bottom:0;" oninput="syncImportIngredient(${i},'nom',this.value)">
+      <input type="number" value="${ing.qte||1}" min="0" step="0.1" style="margin-bottom:0;" oninput="syncImportIngredient(${i},'qte',this.value)">
+      <select style="margin-bottom:0;" onchange="syncImportIngredient(${i},'unite',this.value)">
+        ${UNITES.map(u=>`<option value="${u}" ${u===(ing.unite||'g')?'selected':''}>${u}</option>`).join('')}
+      </select>
+      <button class="bd" onclick="removeImportIngredientRow(${i})" style="padding:4px 8px;font-size:14px;line-height:1;">×</button>
+    </div>
+  `).join('');
+  // Stocker les ingrédients dans une variable globale temporaire
+  window._importIngredients = ingredients.map(i=>({...i}));
+}
+
+function syncImportIngredient(i, field, val){
+  if(!window._importIngredients) return;
+  if(field==='qte') window._importIngredients[i][field] = parseFloat(val)||0;
+  else window._importIngredients[i][field] = val;
+}
+
+function removeImportIngredientRow(i){
+  if(!window._importIngredients) return;
+  window._importIngredients.splice(i, 1);
+  renderImportIngredients(window._importIngredients);
+}
+
+function addImportIngredientRow(){
+  if(!window._importIngredients) window._importIngredients = [];
+  window._importIngredients.push({nom:'', qte:1, unite:'g'});
+  renderImportIngredients(window._importIngredients);
+}
+
+function sauvegarderRecetteImportee(){
+  const nom = document.getElementById('import-nom').value.trim();
+  if(!nom){ toast('⚠ Nom de recette requis'); return; }
+  const personnes = parseInt(document.getElementById('import-personnes').value)||4;
+  const ingredients = (window._importIngredients||[]).filter(i=>i.nom.trim());
+  if(!ingredients.length){ toast('⚠ Au moins un ingrédient requis'); return; }
+
+  const recette = { id: uid(), nom, personnes, ingredients };
+  data.recettes.push(recette);
+  saveData(); renderRecettes(); renderCalcSelect();
+  closeModal('modal-import-recette');
+
+  // Reset du formulaire
+  document.getElementById('import-url').value = '';
+  document.getElementById('import-status').style.display = 'none';
+  document.getElementById('import-result').style.display = 'none';
+  document.getElementById('import-save-btn').style.display = 'none';
+  window._importIngredients = [];
+
+  toast(`📥 "${nom}" importée avec succès`);
+}
+
+// ═══════════════════════════════════════════════
 // ═══════════════════════════════════════════════
 function renderAll(){
   const active = document.querySelector('.section.active')?.id?.replace('s-','') || 'tableau-bord';
@@ -2111,13 +2809,18 @@ document.getElementById('hdr-date').textContent = new Date().toLocaleDateString(
 // Dark mode persistant
 if(localStorage.getItem('lareserve-dark')) document.body.classList.add('dark');
 
+// Bouton clé IA
+updateGeminiKeyBtn();
+
 // Identification utilisateur
 initUser();
 
 startSync();
+// Vérifier alertes au démarrage si notifications activées
+setTimeout(()=>{ if(Notification.permission==='granted') verifierAlertes(); }, 3000);
 
-// PWA Service Worker
-if('serviceWorker' in navigator){
+// PWA Service Worker — uniquement sur GitHub Pages
+if('serviceWorker' in navigator && location.hostname.includes('github.io')){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('/la-reserve/sw.js')
       .then(()=>console.log('SW registered'))
